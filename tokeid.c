@@ -17,7 +17,7 @@
 
 #include <assert.h>
 
-#define HARDLIMIT INT32_MAX
+#define HARDLIMIT INT16_MAX
 
 typedef struct TokeidCommand {
     TokeidFunc func;
@@ -49,7 +49,10 @@ int tokeid_init(const size_t new_capacity)
 
     commands_capacity = new_capacity;
 
-    tokeid_command_create_ex("quit", tokeid_close, "Quits the program");
+    assert(commands_size == 0);
+    assert(commands_capacity >= 2);
+
+    tokeid_command_create_ex("quit", tokeid_close, "Exits the program");
     tokeid_command_create_ex("help", commands_print, "Shows this help");
 
     return 0;
@@ -65,6 +68,8 @@ int tokeid_should_close(void)
     return should_close;
 }
 
+// This function must take in unused arguments and return 0 unconditionally so that this function
+// can be set as a default command
 int tokeid_close(int argc, char argv[MAX_ARGS][MAX_INPUT_LENGTH])
 {
     (void)argc;
@@ -75,7 +80,7 @@ int tokeid_close(int argc, char argv[MAX_ARGS][MAX_INPUT_LENGTH])
 
 int tokeid_command_create(char* keyword, TokeidFunc func)
 {
-    if (commands_size >= commands_capacity || keyword == NULL) {
+    if (commands_size >= commands_capacity || keyword == NULL || func == NULL) {
         REPORT_ERROR;
         return 1;
     }
@@ -83,6 +88,9 @@ int tokeid_command_create(char* keyword, TokeidFunc func)
         REPORT_ERROR;
         return 1;
     }
+
+    assert(commands_capacity >= 2);
+    assert(commands_capacity > commands_size);
 
     commands[commands_size] = (TokeidCommand) {
         .func = func,
@@ -96,7 +104,7 @@ int tokeid_command_create(char* keyword, TokeidFunc func)
 
 int tokeid_command_create_ex(char* keyword, TokeidFunc func, char* help_text)
 {
-    if (commands_size >= commands_capacity || keyword == NULL || help_text == NULL) {
+    if (commands_size >= commands_capacity || keyword == NULL || help_text == NULL || func == NULL) {
         REPORT_ERROR;
         return 1;
     }
@@ -105,20 +113,122 @@ int tokeid_command_create_ex(char* keyword, TokeidFunc func, char* help_text)
         return 1;
     }
 
+    assert(commands_capacity >= 2);
+    assert(commands_capacity > commands_size);
+
     commands[commands_size] = (TokeidCommand) {
         .func = func,
         .keyword = keyword,
         .help_text = help_text,
     };
+
     ++commands_size;
     return 0;
 }
 
+int tokeid_prompt_string(char out[MAX_INPUT_LENGTH], const char* const prompt)
+{
+    assert(NULL != out);
+    if (NULL != prompt)
+        printf("%s", prompt);
+
+    if (read_line(out, MAX_INPUT_LENGTH)) {
+        REPORT_ERROR;
+        return 1;
+    }
+
+    return 0;
+}
+
+int tokeid_prompt_char(char out[MAX_INPUT_LENGTH], const char* const prompt)
+{
+    assert(NULL != out);
+    if (NULL != prompt)
+        printf("%s", prompt);
+
+    if (read_line(out, MAX_INPUT_LENGTH)) {
+        REPORT_ERROR;
+        return 1;
+    }
+
+    if (out[1] != '\0' || out[0] == '\0')
+        return 1;
+
+    return 0;
+}
+
+static int parse_hex(const int c)
+{
+    if (c >= '0' && c <= '9')
+        return c - '0';
+
+    if (c >= 'a' && c <= 'f')
+        return c - 'a' + 10;
+
+    if (c >= 'A' && c <= 'F')
+        return c - 'A' + 10;
+
+    return -1;
+}
+
+int tokeid_prompt_int(int64_t* out, const char* const prompt)
+{
+    assert(NULL != out);
+    *out = 0;
+
+    if (NULL != prompt)
+        printf("%s", prompt);
+
+    char buf[MAX_INPUT_LENGTH] = {0};
+    if (read_line(buf, MAX_INPUT_LENGTH)) {
+        REPORT_ERROR;
+        return 1;
+    }
+
+    if ((buf[0] == '0' && buf[1] == 'x') || (buf[0] == '-' && buf[1] == '0' && buf[2] == 'x')) {
+        for (int i = 2 + (buf[0] == '-'); i < MAX_INPUT_LENGTH && buf[i] != '\0'; ++i) {
+            const int c = parse_hex((int)buf[i]);
+            if (c == -1) return 1;
+
+            if ((*out) > ((INT64_MAX >> 4) - c))
+                return 1;
+            *out = ((*out) << 4) + c;
+        }
+        if (buf[0] == '-')
+            *out = -(*out);
+    } else if ((buf[0] == '0' && buf[1] == 'b') || (buf[0] == '-' && buf[1] == '0' && buf[2] == 'b')) {
+        for (int i = 2 + (buf[0] == '-'); i < MAX_INPUT_LENGTH && buf[i] != '\0'; ++i) {
+            if (buf[i] != '0' && buf[i] != '1')
+                return 1;
+            if ((*out) > ((INT64_MAX >> 1) - (buf[i] - '0')))
+                return 1;
+            *out = ((*out) << 1) + (buf[i] - '0');
+        }
+        if (buf[0] == '-')
+            *out = -(*out);
+    } else {
+        for (int i = (buf[0] == '-'); i < MAX_INPUT_LENGTH && buf[i] != '\0'; ++i) {
+            if (buf[i] < '0' || buf[i] > '9')
+                return 1;
+            if ((*out) > ((INT64_MAX / 10) - (buf[i] - '0')))
+                return 1;
+            *out = ((*out) * 10) + (buf[i] - '0');
+        }
+        if (buf[0] == '-')
+            *out = -(*out);
+    }
+
+    return 0;
+}
+
+// TODO:
+// int tokeid_prompt_double(double* out, const char* const prompt){}
+
 int tokeid_get_input(const char* const prompt)
 {
     char token[MAX_INPUT_LENGTH];
-    char args[MAX_ARGS][MAX_INPUT_LENGTH];
-    int argc;
+    char args[MAX_ARGS][MAX_INPUT_LENGTH] = {{0}};
+    int argc = -1;
 
     if (prompt != NULL)
         printf("%s", prompt);
@@ -132,6 +242,13 @@ int tokeid_get_input(const char* const prompt)
         REPORT_ERROR;
         return 1;
     }
+
+    if (args[0][0] == '\0')
+        return 1;
+
+    assert(argc > 0);
+    assert(commands_size >= 2);
+    assert(commands_capacity >= commands_size);
 
     // TODO: change to hashmap in future update
     for (size_t i = 0; i < commands_size; ++i) {
@@ -174,11 +291,20 @@ static int tokenize(char out[MAX_ARGS][MAX_INPUT_LENGTH], const char* const in, 
 
 static int read_line(char* buf, const int size)
 {
+    assert(NULL != buf);
     if (NULL == fgets(buf, size, stdin)) {
         REPORT_ERROR;
         return 1;
     }
-    buf[strcspn(buf, "\n")] = '\0';
+
+    size_t len = strcspn(buf, "\n");
+    if (buf[len] == '\n') {
+        buf[len] = '\0';
+    } else {
+        buf[len] = '\0';
+        int c;
+        while ((c = getchar()) != '\n' && c != EOF);
+    }
     return 0;
 }
 
@@ -200,14 +326,9 @@ static int command_exists(const char* const keyword)
     for (size_t i = 0; i < commands_size; ++i) {
         if (0 == strcmp(keyword, commands[i].keyword))
             return 1;
-    } 
+    }
 
     return 0;
 }
-
-
-
-
-
 
 
