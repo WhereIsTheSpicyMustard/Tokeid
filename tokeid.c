@@ -190,7 +190,7 @@ int tokeid_prompt_int(int64_t* out, const char* const prompt)
             const int c = parse_hex((int)buf[i]);
             if (c == -1) return 1;
 
-            if ((*out) > ((INT64_MAX >> 4) - c))
+            if ((*out) > ((INT64_MAX - c) >> 4))
                 return 1;
             *out = ((*out) << 4) + c;
         }
@@ -200,7 +200,7 @@ int tokeid_prompt_int(int64_t* out, const char* const prompt)
         for (int i = 2 + (buf[0] == '-'); i < MAX_INPUT_LENGTH && buf[i] != '\0'; ++i) {
             if (buf[i] != '0' && buf[i] != '1')
                 return 1;
-            if ((*out) > ((INT64_MAX >> 1) - (buf[i] - '0')))
+            if ((*out) > ((INT64_MAX - (buf[i] - '0')) >> 1))
                 return 1;
             *out = ((*out) << 1) + (buf[i] - '0');
         }
@@ -210,7 +210,7 @@ int tokeid_prompt_int(int64_t* out, const char* const prompt)
         for (int i = (buf[0] == '-'); i < MAX_INPUT_LENGTH && buf[i] != '\0'; ++i) {
             if (buf[i] < '0' || buf[i] > '9')
                 return 1;
-            if ((*out) > ((INT64_MAX / 10) - (buf[i] - '0')))
+            if ((*out) > ((INT64_MAX - (buf[i] - '0')) / 10))
                 return 1;
             *out = ((*out) * 10) + (buf[i] - '0');
         }
