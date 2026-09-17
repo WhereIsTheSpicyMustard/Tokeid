@@ -7,8 +7,16 @@
 #define MAX_INPUT_LENGTH 32
 #define MAX_ARGS 8
 
+enum {
+    TOKEID_OK = 0,
+    TOKEID_EMPTY_LINE,        // blank/whitespace-only input, nothing to do
+    TOKEID_UNKNOWN_COMMAND,   // no matching keyword
+    TOKEID_TOKENIZE_ERR,      // too many args / arg too long
+    TOKEID_IO_ERR,            // fgets/EOF failure
+
+};
+
 typedef int (*TokeidFunc)(int argc, char argv[MAX_ARGS][MAX_INPUT_LENGTH]);
-typedef struct TokeidCommand TokeidCommand;
 
 int  tokeid_init(const size_t new_capacity); // Allocates memory for new_capacity number of commands.  Returns 1 on failure, 0 on success.
 void tokeid_cleanup(void); // Frees all memory allocated from init
@@ -23,7 +31,7 @@ int  tokeid_prompt_char(char out[MAX_INPUT_LENGTH], const char* const prompt);
 int  tokeid_prompt_int(int64_t* out, const char* const prompt);
 int  tokeid_prompt_double(double* out, const char* const prompt);
 
-int  tokeid_get_input(const char* const prompt);
+int  tokeid_get_input(const char* const prompt, int* command_result);
 
 
 #endif

@@ -6,18 +6,15 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define TOKEID_DEBUG
-
-#ifdef TOKEID_DEBUG
-#define REPORT_ERROR fprintf(stderr, "Tokeid Error -> %s | %d\n", __FILE__, __LINE__)
+#ifdef NDEBUG
+#define REPORT_ERROR ((void)0)
 #else
-#define REPORT_ERROR NULL
-#define NDEBUG
+#define REPORT_ERROR fprintf(stderr, "Tokeid Error -> %s | %d\n", __FILE__, __LINE__)
 #endif
 
 #include <assert.h>
 
-#define HARDLIMIT INT16_MAX
+#define HARDLIMIT (0xFFFF)
 
 typedef struct TokeidCommand {
     TokeidFunc func;
@@ -41,11 +38,11 @@ static int num_from_hex(const char* restrict buf, int64_t* restrict out);
 
 int tokeid_init(const size_t new_capacity)
 {
-    if (new_capacity > (HARDLIMIT - 2)) {
+    if (new_capacity > HARDLIMIT) {
         REPORT_ERROR;
         return 1;
     }
-    commands = malloc((new_capacity + 2) * sizeof(*commands));
+    commands = malloc(new_capacity * sizeof(*commands));
     if (commands == NULL) {
         REPORT_ERROR;
         return 1;
@@ -65,6 +62,10 @@ int tokeid_init(const size_t new_capacity)
 void tokeid_cleanup(void)
 {
     free(commands);
+    commands = NULL;
+    commands_size = 0;
+    commands_capacity = 0;
+    should_close = 0;
 }
 
 int tokeid_should_close(void)
@@ -138,7 +139,7 @@ int tokeid_prompt_string(char out[MAX_INPUT_LENGTH], const char* const prompt)
 
     if (read_line(out, MAX_INPUT_LENGTH)) {
         REPORT_ERROR;
-        return 1;
+        return TOKEID_IO_ERR;
     }
 
     return 0;
@@ -153,7 +154,7 @@ int tokeid_prompt_char(char out[MAX_INPUT_LENGTH], const char* const prompt)
 
         if (read_line(out, MAX_INPUT_LENGTH)) {
             REPORT_ERROR;
-            return 1;
+            return TOKEID_IO_ERR;
         }
 
         if (out[1] != '\0' || out[0] == '\0')
@@ -162,6 +163,7 @@ int tokeid_prompt_char(char out[MAX_INPUT_LENGTH], const char* const prompt)
         return 0;
     }
 }
+
 int tokeid_prompt_int(int64_t* restrict out, const char* const restrict prompt)
 {
     assert(NULL != out);
@@ -174,8 +176,18 @@ int tokeid_prompt_int(int64_t* restrict out, const char* const restrict prompt)
         char buf[MAX_INPUT_LENGTH] = {0};
         if (read_line(buf, MAX_INPUT_LENGTH)) {
             REPORT_ERROR;
-            return 1;
+            return TOKEID_IO_ERR;
         }
+
+        const size_t buf_len = strnlen(buf, (size_t)MAX_INPUT_LENGTH);
+        if (buf_len == 0)
+            continue;
+        if (-1 == parse_hex(buf[buf_len - 1]))
+            continue;
+        if (buf_len == 3 && buf[0] == '-' && buf[1] == '0') // prevents incomplete cases like "-0x" or "-0b"
+            continue;
+        if (buf_len == 2 && buf[0] == '0') // prevents incomplete cases like "0x" or "0b"
+            continue;
 
         if ((buf[0] == '0' && buf[1] == 'x') || (buf[0] == '-' && buf[1] == '0' && buf[2] == 'x')) {
             if (num_from_hex(buf, out))
@@ -193,29 +205,35 @@ int tokeid_prompt_int(int64_t* restrict out, const char* const restrict prompt)
 }
 
 // TODO:
-// int tokeid_prompt_double(double* out, const char* const prompt){}
+int tokeid_prompt_double(double* out, const char* const prompt)
+{
+    (void)out;
+    (void)prompt;
+    return 1;
+}
 
-int tokeid_get_input(const char* const prompt)
+int tokeid_get_input(const char* const prompt, int* command_result)
 {
     char token[MAX_INPUT_LENGTH];
     char args[MAX_ARGS][MAX_INPUT_LENGTH] = {{0}};
     int argc = -1;
+    *command_result = 0;
 
     if (prompt != NULL)
         printf("%s", prompt);
 
     if (read_line(token, MAX_INPUT_LENGTH)) {
         REPORT_ERROR;
-        return 1;
+        return TOKEID_IO_ERR;
     }
 
     if (tokenize(args, token, &argc)) {
         REPORT_ERROR;
-        return 1;
+        return TOKEID_TOKENIZE_ERR;
     }
 
     if (args[0][0] == '\0')
-        return 1;
+        return TOKEID_EMPTY_LINE;
 
     assert(argc > 0);
     assert(commands_size >= 2);
@@ -225,11 +243,11 @@ int tokeid_get_input(const char* const prompt)
     for (size_t i = 0; i < commands_size; ++i) {
         if (strcmp(args[0], commands[i].keyword))
             continue;
-        commands[i].func(argc, args);
+        *command_result = commands[i].func(argc, args);
         return 0;
     }
 
-    return 1;
+    return TOKEID_UNKNOWN_COMMAND;
 }
 
 /******************************************************************************************/
@@ -237,7 +255,9 @@ int tokeid_get_input(const char* const prompt)
 
 static int num_from_hex(const char* restrict buf, int64_t* restrict out)
 {
-    for (int i = 2 + (buf[0] == '-'); i < MAX_INPUT_LENGTH && buf[i] != '\0'; ++i) {
+    const int start = 2 + (buf[0] == '-');
+    if (buf[start] == '0') return 1;
+    for (int i = start; i < MAX_INPUT_LENGTH && buf[i] != '\0'; ++i) {
         const int c = parse_hex((int)buf[i]);
         if (c == -1) return 1;
 
@@ -252,7 +272,9 @@ static int num_from_hex(const char* restrict buf, int64_t* restrict out)
 
 static int num_from_bin(const char* restrict buf, int64_t* restrict out)
 {
-    for (int i = 2 + (buf[0] == '-'); i < MAX_INPUT_LENGTH && buf[i] != '\0'; ++i) {
+    const int start = 2 + (buf[0] == '-');
+    if (buf[start] == '0') return 1;
+    for (int i = start; i < MAX_INPUT_LENGTH && buf[i] != '\0'; ++i) {
         if (buf[i] != '0' && buf[i] != '1')
             return 1;
         if ((*out) > ((INT64_MAX - (buf[i] - '0')) >> 1))
@@ -267,7 +289,9 @@ static int num_from_bin(const char* restrict buf, int64_t* restrict out)
 
 static int num_from_dec(const char* restrict buf, int64_t* restrict out)
 {
-    for (int i = (buf[0] == '-'); i < MAX_INPUT_LENGTH && buf[i] != '\0'; ++i) {
+    const int start = buf[0] == '-';
+    if (buf[start] == '0') return 1;
+    for (int i = start; i < MAX_INPUT_LENGTH && buf[i] != '\0'; ++i) {
         if (buf[i] < '0' || buf[i] > '9')
             return 1;
         if ((*out) > ((INT64_MAX - (buf[i] - '0')) / 10))
@@ -298,14 +322,22 @@ static int tokenize(char out[MAX_ARGS][MAX_INPUT_LENGTH], const char* restrict c
 {
     *argc = 0;
     int out_idx = 0;
+    int leading_spaces = 1;
 
     for (int i = 0 ;; ++i) {
+        if (leading_spaces && in[i] == ' ')
+            continue;
+        leading_spaces = 0;
+
         if (*argc >= MAX_ARGS || out_idx >= MAX_INPUT_LENGTH) {
             REPORT_ERROR;
             return 1;
         }
 
         if (in[i] == ' ' || in[i] == '\0') {
+            if (i > 0)
+                if (in[i - 1] == ' ')
+                    continue;
             out[*argc][out_idx] = '\0';
             ++(*argc);
             out_idx = 0;
