@@ -34,6 +34,10 @@ static int tokenize(char out[MAX_ARGS][MAX_INPUT_LENGTH], const char* const in, 
 static int read_line(char* buf, const int size);
 static int commands_print(int argc, char argv[MAX_ARGS][MAX_INPUT_LENGTH]);
 static int command_exists(const char* const keyword);
+static int parse_hex(const int c);
+static int num_from_dec(const char* restrict buf, int64_t* restrict out);
+static int num_from_bin(const char* restrict buf, int64_t* restrict out);
+static int num_from_hex(const char* restrict buf, int64_t* restrict out);
 
 int tokeid_init(const size_t new_capacity)
 {
@@ -143,82 +147,49 @@ int tokeid_prompt_string(char out[MAX_INPUT_LENGTH], const char* const prompt)
 int tokeid_prompt_char(char out[MAX_INPUT_LENGTH], const char* const prompt)
 {
     assert(NULL != out);
-    if (NULL != prompt)
-        printf("%s", prompt);
+    while (1) {
+        if (NULL != prompt)
+            printf("%s", prompt);
 
-    if (read_line(out, MAX_INPUT_LENGTH)) {
-        REPORT_ERROR;
-        return 1;
+        if (read_line(out, MAX_INPUT_LENGTH)) {
+            REPORT_ERROR;
+            return 1;
+        }
+
+        if (out[1] != '\0' || out[0] == '\0')
+            continue;
+
+        return 0;
     }
-
-    if (out[1] != '\0' || out[0] == '\0')
-        return 1;
-
-    return 0;
 }
-
-static int parse_hex(const int c)
-{
-    if (c >= '0' && c <= '9')
-        return c - '0';
-
-    if (c >= 'a' && c <= 'f')
-        return c - 'a' + 10;
-
-    if (c >= 'A' && c <= 'F')
-        return c - 'A' + 10;
-
-    return -1;
-}
-
-int tokeid_prompt_int(int64_t* out, const char* const prompt)
+int tokeid_prompt_int(int64_t* restrict out, const char* const restrict prompt)
 {
     assert(NULL != out);
-    *out = 0;
+    while (1) {
+        *out = 0;
 
-    if (NULL != prompt)
-        printf("%s", prompt);
+        if (NULL != prompt)
+            printf("%s", prompt);
 
-    char buf[MAX_INPUT_LENGTH] = {0};
-    if (read_line(buf, MAX_INPUT_LENGTH)) {
-        REPORT_ERROR;
-        return 1;
+        char buf[MAX_INPUT_LENGTH] = {0};
+        if (read_line(buf, MAX_INPUT_LENGTH)) {
+            REPORT_ERROR;
+            return 1;
+        }
+
+        if ((buf[0] == '0' && buf[1] == 'x') || (buf[0] == '-' && buf[1] == '0' && buf[2] == 'x')) {
+            if (num_from_hex(buf, out))
+                continue;
+        } else if ((buf[0] == '0' && buf[1] == 'b') || (buf[0] == '-' && buf[1] == '0' && buf[2] == 'b')) {
+            if (num_from_bin(buf, out))
+                continue;
+        } else {
+            if (num_from_dec(buf, out))
+                continue;
+        }
+
+        return 0;
     }
-
-    if ((buf[0] == '0' && buf[1] == 'x') || (buf[0] == '-' && buf[1] == '0' && buf[2] == 'x')) {
-        for (int i = 2 + (buf[0] == '-'); i < MAX_INPUT_LENGTH && buf[i] != '\0'; ++i) {
-            const int c = parse_hex((int)buf[i]);
-            if (c == -1) return 1;
-
-            if ((*out) > ((INT64_MAX - c) >> 4))
-                return 1;
-            *out = ((*out) << 4) + c;
-        }
-        if (buf[0] == '-')
-            *out = -(*out);
-    } else if ((buf[0] == '0' && buf[1] == 'b') || (buf[0] == '-' && buf[1] == '0' && buf[2] == 'b')) {
-        for (int i = 2 + (buf[0] == '-'); i < MAX_INPUT_LENGTH && buf[i] != '\0'; ++i) {
-            if (buf[i] != '0' && buf[i] != '1')
-                return 1;
-            if ((*out) > ((INT64_MAX - (buf[i] - '0')) >> 1))
-                return 1;
-            *out = ((*out) << 1) + (buf[i] - '0');
-        }
-        if (buf[0] == '-')
-            *out = -(*out);
-    } else {
-        for (int i = (buf[0] == '-'); i < MAX_INPUT_LENGTH && buf[i] != '\0'; ++i) {
-            if (buf[i] < '0' || buf[i] > '9')
-                return 1;
-            if ((*out) > ((INT64_MAX - (buf[i] - '0')) / 10))
-                return 1;
-            *out = ((*out) * 10) + (buf[i] - '0');
-        }
-        if (buf[0] == '-')
-            *out = -(*out);
-    }
-
-    return 0;
 }
 
 // TODO:
@@ -264,7 +235,66 @@ int tokeid_get_input(const char* const prompt)
 /******************************************************************************************/
 // static internals
 
-static int tokenize(char out[MAX_ARGS][MAX_INPUT_LENGTH], const char* const in, int* argc)
+static int num_from_hex(const char* restrict buf, int64_t* restrict out)
+{
+    for (int i = 2 + (buf[0] == '-'); i < MAX_INPUT_LENGTH && buf[i] != '\0'; ++i) {
+        const int c = parse_hex((int)buf[i]);
+        if (c == -1) return 1;
+
+        if ((*out) > ((INT64_MAX - c) >> 4))
+            return 1;
+        *out = ((*out) << 4) + c;
+    }
+    if (buf[0] == '-')
+        *out = -(*out);
+    return 0;
+}
+
+static int num_from_bin(const char* restrict buf, int64_t* restrict out)
+{
+    for (int i = 2 + (buf[0] == '-'); i < MAX_INPUT_LENGTH && buf[i] != '\0'; ++i) {
+        if (buf[i] != '0' && buf[i] != '1')
+            return 1;
+        if ((*out) > ((INT64_MAX - (buf[i] - '0')) >> 1))
+            return 1;
+        *out = ((*out) << 1) + (buf[i] - '0');
+    }
+    if (buf[0] == '-')
+        *out = -(*out);
+
+    return 0;
+}
+
+static int num_from_dec(const char* restrict buf, int64_t* restrict out)
+{
+    for (int i = (buf[0] == '-'); i < MAX_INPUT_LENGTH && buf[i] != '\0'; ++i) {
+        if (buf[i] < '0' || buf[i] > '9')
+            return 1;
+        if ((*out) > ((INT64_MAX - (buf[i] - '0')) / 10))
+            return 1;
+        *out = ((*out) * 10) + (buf[i] - '0');
+    }
+    if (buf[0] == '-')
+        *out = -(*out);
+
+    return 0;
+}
+
+static int parse_hex(const int c)
+{
+    if (c >= '0' && c <= '9')
+        return c - '0';
+
+    if (c >= 'a' && c <= 'f')
+        return c - 'a' + 10;
+
+    if (c >= 'A' && c <= 'F')
+        return c - 'A' + 10;
+
+    return -1;
+}
+
+static int tokenize(char out[MAX_ARGS][MAX_INPUT_LENGTH], const char* restrict const in, int* restrict argc)
 {
     *argc = 0;
     int out_idx = 0;
@@ -289,7 +319,7 @@ static int tokenize(char out[MAX_ARGS][MAX_INPUT_LENGTH], const char* const in, 
     }
 }
 
-static int read_line(char* buf, const int size)
+static int read_line(char* restrict buf, const int size)
 {
     assert(NULL != buf);
     if (NULL == fgets(buf, size, stdin)) {
