@@ -38,6 +38,7 @@ static int num_from_hex(const char* restrict buf, int64_t* restrict out);
 
 int tokeid_init(const size_t new_capacity)
 {
+    assert(new_capacity >= 2);
     if (new_capacity > HARDLIMIT) {
         REPORT_ERROR;
         return 1;
@@ -51,7 +52,6 @@ int tokeid_init(const size_t new_capacity)
     commands_capacity = new_capacity;
 
     assert(commands_size == 0);
-    assert(commands_capacity >= 2);
 
     tokeid_command_create_ex("q", tokeid_close, "Exits the program");
     tokeid_command_create_ex("help", commands_print, "Shows this help");
@@ -157,8 +157,10 @@ int tokeid_prompt_char(char out[MAX_INPUT_LENGTH], const char* const prompt)
             return TOKEID_IO_ERR;
         }
 
-        if (out[1] != '\0' || out[0] == '\0')
+        if (out[1] != '\0' || out[0] == '\0') {
+            printf("Input was empty or longer than 1 character.\n");
             continue;
+        }
 
         return 0;
     }
@@ -179,25 +181,39 @@ int tokeid_prompt_int(int64_t* restrict out, const char* const restrict prompt)
             return TOKEID_IO_ERR;
         }
 
-        const size_t buf_len = strnlen(buf, (size_t)MAX_INPUT_LENGTH);
-        if (buf_len == 0)
+        const size_t buf_len = strlen(buf);
+        if (buf_len == 0) {
+            printf("Input was empty.\n");
             continue;
-        if (-1 == parse_hex(buf[buf_len - 1]))
+        }
+        if (-1 == parse_hex(buf[buf_len - 1])) {
+            printf("Input was invalid.\n");
             continue;
-        if (buf_len == 3 && buf[0] == '-' && buf[1] == '0') // prevents incomplete cases like "-0x" or "-0b"
+        }
+        if (buf_len == 3 && buf[0] == '-' && buf[1] == '0') { // prevents incomplete cases like "-0x" or "-0b"
+            printf("Input was incomplete.\n");
             continue;
-        if (buf_len == 2 && buf[0] == '0') // prevents incomplete cases like "0x" or "0b"
+        }
+        if (buf_len == 2 && buf[0] == '0') { // prevents incomplete cases like "0x" or "0b"
+            printf("Input was incomplete.\n");
             continue;
+        }
 
         if ((buf[0] == '0' && buf[1] == 'x') || (buf[0] == '-' && buf[1] == '0' && buf[2] == 'x')) {
-            if (num_from_hex(buf, out))
+            if (num_from_hex(buf, out)) {
+                printf("Input was too large or had a leading zero.\n");
                 continue;
+            }
         } else if ((buf[0] == '0' && buf[1] == 'b') || (buf[0] == '-' && buf[1] == '0' && buf[2] == 'b')) {
-            if (num_from_bin(buf, out))
+            if (num_from_bin(buf, out)) {
+                printf("Input was too large, had a leading zero, or contained invalid characters.\n");
                 continue;
+            }
         } else {
-            if (num_from_dec(buf, out))
+            if (num_from_dec(buf, out)) {
+                printf("Input was too large, had a leading zero, or contained invalid characters.\n");
                 continue;
+            }
         }
 
         return 0;
@@ -247,6 +263,7 @@ int tokeid_get_input(const char* const prompt, int* command_result)
         return 0;
     }
 
+    printf("Unknown command.\n");
     return TOKEID_UNKNOWN_COMMAND;
 }
 
