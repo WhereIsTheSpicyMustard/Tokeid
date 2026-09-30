@@ -53,7 +53,7 @@ int tokeid_init(const size_t new_capacity)
     assert(commands_size == 0);
     assert(commands_capacity >= 2);
 
-    tokeid_command_create_ex("quit", tokeid_close, "Exits the program");
+    tokeid_command_create_ex("q", tokeid_close, "Exits the program");
     tokeid_command_create_ex("help", commands_print, "Shows this help");
 
     return 0;
@@ -376,7 +376,7 @@ static int commands_print(int argc, char argv[MAX_ARGS][MAX_INPUT_LENGTH])
     (void)argv;
 
     for (size_t i = 0; i < commands_size; ++i)
-        printf("%s | %s\n", commands[i].keyword, commands[i].help_text);
+        printf("%16s | %s\n", commands[i].keyword, commands[i].help_text);
     return 0;
 }
 

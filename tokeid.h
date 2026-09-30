@@ -13,7 +13,6 @@ enum {
     TOKEID_UNKNOWN_COMMAND,   // no matching keyword
     TOKEID_TOKENIZE_ERR,      // too many args / arg too long
     TOKEID_IO_ERR,            // fgets/EOF failure
-
 };
 
 typedef int (*TokeidFunc)(int argc, char argv[MAX_ARGS][MAX_INPUT_LENGTH]);
